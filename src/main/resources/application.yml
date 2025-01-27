@@ -1,0 +1,19 @@
+spring:
+  datasource:
+    url: jdbc:sybase:Tds:10.34.4.65:60500/admi?ENABLE_SSL=true&SSL_TRUST_ALL_CERTS=true
+    username: admi # Cambia esto por tu usuario de base de datos
+    password: admimanha2$ # Cambia esto por tu contraseña de base de datos
+    driver-class-name: com.sybase.jdbc4.jdbc.SybDriver # Driver de SAP ASE
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        hibernate.format_sql: true
+        dialect: org.hibernate.dialect.SybaseDialect
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql: TRACE
