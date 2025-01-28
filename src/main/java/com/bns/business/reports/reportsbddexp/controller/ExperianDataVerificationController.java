@@ -7,20 +7,25 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/financial-market-data")
+@RequestMapping("/api/v1/experian")
 public class ExperianDataVerificationController {
 
     @Autowired
     private ExperianDataVerificationService service;
 
     /**
-     * Endpoint para procesar consultas al servicio de verificación de datos.
+     * Endpoint para procesar la consulta de Experian.
      *
-     * @param params Parámetros de entrada para la consulta
-     * @return Respuesta del servicio, encapsulada en un ResponseEntity
+     * @param params Parámetros de entrada
+     * @return Respuesta de la operación
      */
-    @PostMapping("/verify")
-    public ResponseEntity<Object> verifyData(@RequestBody ExperianDataVerificationInputParam params) {
-        return service.processQuery(params);
+    @PostMapping("/process-query")
+    public ResponseEntity<Object> processQuery(@RequestBody ExperianDataVerificationInputParam params) {
+        try {
+            return service.processQuery(params);
+        } catch (Exception e) {
+            // Manejo de errores global en el controlador
+            return ResponseEntity.status(500).body("Error interno del servidor: " + e.getMessage());
+        }
     }
 }

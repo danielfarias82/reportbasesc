@@ -1,129 +1,105 @@
 package com.bns.business.reports.reportsbddexp.service;
 
-import com.bns.business.reports.reportsbddexp.model.BdPri38SvcConUsuInputParam;
-import com.bns.business.reports.reportsbddexp.model.BdPri38SvcConparInputParam;
-import com.bns.business.reports.reportsbddexp.model.BdPri38SvcVisorInformesInputParam;
 import com.bns.business.reports.reportsbddexp.model.ExperianDataVerificationInputParam;
 import com.bns.business.reports.reportsbddexp.model.ResultJson;
-import com.bns.business.reports.reportsbddexp.repo.BusinessReportPrimaryRepository;
-import com.bns.business.reports.reportsbddexp.util.CallExperianService;
+import com.bns.business.reports.reportsbddexp.repo.BusinessReportPrimaryJdbcTemplateRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 
 @Service
 public class ExperianDataVerificationService {
 
     @Autowired
-    private BusinessReportPrimaryRepository repository;
-
-    @Autowired
-    private CallExperianService callExperianService;
+    private BusinessReportPrimaryJdbcTemplateRepository repository;
 
     public ResponseEntity<Object> processQuery(ExperianDataVerificationInputParam params) {
         ResultJson resultOutput = new ResultJson();
 
         try {
-            // 1. Validación del usuario (SP: svc_conusu)
-            Map<String, Object> resultSvcConUsu = repository.executeBdPri38SvcConUsu(
-                    new BdPri38SvcConUsuInputParam(0, params.getUsuario()));
+            // Validación del usuario
+            System.out.println("Validando usuario: " + params.getUsuario());
+            List<Map<String, Object>> resultSvcConUsu = repository.executeBdPri38SvcConUsu(params.getUsuario());
 
-            ArrayList<Map> svcConUsu = (ArrayList<Map>) resultSvcConUsu.get("#result-set-1");
-
-            if (svcConUsu == null || svcConUsu.isEmpty()) {
+            if (resultSvcConUsu == null || resultSvcConUsu.isEmpty()) {
                 resultOutput.setCode(403);
-                resultOutput.setMessage("Usuario no autorizado.");
+                resultOutput.setMessage("Usuario no autorizado para realizar esta consulta.");
                 return ResponseEntity.status(403).body(resultOutput);
             }
+            System.out.println("Usuario validado con éxito.");
 
-            // 2. Obtención de parámetros del servicio (SP: svc_conpar)
-            Map<String, Object> resultSvcConpar = repository.executeBdPri38SvcConpar(
-                    new BdPri38SvcConparInputParam(0, "1", params.getTipoConsulta()));
+            // Llamada al procedimiento svc_conpar
+            String empCod = "1"; // Código de empresa fijo
+            String codCon = params.getTipoConsulta();
 
-            ArrayList<Map> svcConPar = (ArrayList<Map>) resultSvcConpar.get("#result-set-1");
+            if (codCon == null || codCon.isEmpty()) {
+                resultOutput.setCode(400);
+                resultOutput.setMessage("El campo 'tipoConsulta' es obligatorio y no puede ser nulo.");
+                return ResponseEntity.status(400).body(resultOutput);
+            }
 
-            if (svcConPar == null || svcConPar.isEmpty()) {
+            System.out.println("Consultando svc_conpar con empCod=" + empCod + " y codCon=" + codCon);
+
+            List<Map<String, Object>> resultSvcConpar = repository.executeBdPri38SvcConpar(empCod, codCon);
+
+            // Validar que resultSvcConpar tenga datos
+            if (resultSvcConpar == null || resultSvcConpar.isEmpty()) {
                 resultOutput.setCode(404);
-                resultOutput.setMessage("Parámetros del servicio no encontrados.");
+                resultOutput.setMessage("No se encontraron datos válidos en svc_conpar.");
                 return ResponseEntity.status(404).body(resultOutput);
             }
 
-            String conCod = svcConPar.get(0).get("nom_ext_con").toString();
-            int prdCon = Integer.parseInt(svcConPar.get(0).get("prd_con").toString());
+            // Procesar los resultados directamente de la lista
+            Map<String, Object> firstRow = resultSvcConpar.get(0);
 
-            // 3. Consulta al visor de informes (SP: svc_visor_informes)
-            Map<String, Object> resultSvcVisorInformes = repository.executeBdPri38SvcVisorInformes(
-                    new BdPri38SvcVisorInformesInputParam(0, "", "C", params.getRut(), conCod, 1, "A"));
-
-            Object resultDataVisor = resultSvcVisorInformes.get("#result-set-1");
-
-            // 4. Validación de datos existentes o expirados
-            if (resultDataVisor == null || !isDataValid(resultDataVisor, prdCon, params.getFecha())) {
-                // 5. Llamada al servicio externo (Experian)
-                String url = getPartialUrl(params.getTipoConsulta());
-                Map<String, String> input = getInput(params);
-                Object response = callExperianService.callExperian(url, HttpMethod.POST, input);
-
-                if (response instanceof ResultJson) {
-                    ResultJson result = (ResultJson) response;
-
-                    if (result.getCode() == 200) {
-                        String dataVisor = result.getResult().toString();
-                        repository.executeBdPri38SvcVisorInformes(
-                                new BdPri38SvcVisorInformesInputParam(0, dataVisor, "I", params.getRut(), conCod, 1,
-                                        "E"));
-                    } else {
-                        return ResponseEntity.status(400).body(result);
-                    }
-                }
+            if (firstRow == null) {
+                resultOutput.setCode(500);
+                resultOutput.setMessage("Formato inesperado de datos en svc_conpar.");
+                return ResponseEntity.status(500).body(resultOutput);
             }
 
+            String conCod = firstRow.get("nom_ext_con") != null ? firstRow.get("nom_ext_con").toString() : null;
+            Integer canDet = firstRow.get("can_det") != null ? Integer.parseInt(firstRow.get("can_det").toString()) : null;
+
+            if (conCod == null || canDet == null) {
+                resultOutput.setCode(500);
+                resultOutput.setMessage("Datos incompletos en el resultado de svc_conpar.");
+                return ResponseEntity.status(500).body(resultOutput);
+            }
+
+            System.out.println("Datos capturados de svc_conpar: conCod=" + conCod + ", canDet=" + canDet);
+
+            // Llamada a svc_visor_informes
+            List<Map<String, Object>> visorResult = repository.executeBdPri38SvcVisorInformes(
+                    params.getSerie(), "C", params.getRut(), conCod, canDet, "A");
+
+            if (visorResult == null) {
+                resultOutput.setCode(404);
+                resultOutput.setMessage("No se encontraron datos en el visor de informes.");
+                return ResponseEntity.status(404).body(resultOutput);
+            }
+
+            // Si el resultado es una lista vacía
+            if (visorResult.isEmpty()) {
+                resultOutput.setCode(404);
+                resultOutput.setMessage("No se encontraron datos en el visor de informes.");
+                return ResponseEntity.status(404).body(resultOutput);
+            }
+
+            // Respuesta exitosa
             resultOutput.setCode(200);
             resultOutput.setMessage("Consulta realizada con éxito.");
+            resultOutput.setResult(visorResult);
             return ResponseEntity.status(200).body(resultOutput);
 
         } catch (Exception e) {
+            e.printStackTrace();
             resultOutput.setCode(500);
             resultOutput.setMessage("Error interno: " + e.getMessage());
             return ResponseEntity.status(500).body(resultOutput);
-        }
-    }
-
-    private boolean isDataValid(Object resultDataVisor, int prdCon, String fechaConsulta) {
-        try {
-            String businessDate = extractDateFromVisorData(resultDataVisor.toString());
-            LocalDate fechaVisor = LocalDate.parse(businessDate, DateTimeFormatter.ofPattern("yyyyMMdd"));
-            LocalDate fechaActual = LocalDate.parse(fechaConsulta, DateTimeFormatter.ofPattern("yyyyMMdd"));
-            long diffDays = ChronoUnit.DAYS.between(fechaVisor, fechaActual);
-            return diffDays <= prdCon;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private String extractDateFromVisorData(String visorData) {
-        return visorData.substring(18, 26);
-    }
-
-    private Map<String, String> getInput(ExperianDataVerificationInputParam params) {
-        return Map.of(
-                "rut", params.getRut(),
-                "serie", params.getSerie());
-    }
-
-    private String getPartialUrl(String tipoConsulta) {
-        switch (tipoConsulta) {
-            case "IR07":
-                return "cl/cr/irut0702/v1/infracciones-laborales/obtener";
-            default:
-                throw new IllegalArgumentException("Tipo de consulta no soportado");
         }
     }
 }

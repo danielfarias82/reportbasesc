@@ -5,10 +5,10 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Data
-@AllArgsConstructor
 @NoArgsConstructor
+@AllArgsConstructor
 public class BdPri38SvcConparInputParam {
-    private int mode; // Modo del procedimiento (siempre 0)
-    private String empCod; // Código de la empresa
-    private String codCon; // Código de consulta
+    private int returnValue; // Valor de retorno (RETURN_VALUE)
+    private String empCod; // Código de empresa (@emp_cod)
+    private String codCon; // Código de consulta (@cod_con)
 }
